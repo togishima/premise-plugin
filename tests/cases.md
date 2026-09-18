@@ -119,8 +119,27 @@ accumulates linearly while adding nothing after the first copy.
 
 | | per prompt | 50-turn session |
 |---|---|---|
-| full gate every turn (rejected) | ~753 tok | **~37,600 tok** |
-| full gate once + reminder (current) | ~753 then ~49 | **~3,150 tok** |
+| full gate every turn (rejected) | ~753 tok | ~37,600 tok |
+| full gate once + ~49 tok reminder (rejected) | ~753 then ~49 | ~3,150 tok |
+| **full gate once, then silent (current)** | ~753 then **0** | **~753 tok** |
+
+### Does the per-prompt reminder earn its keep?
+
+Tested directly, because it was designed before the first-edit checkpoint existed
+and may have been made redundant by it. Both arms ran the same 3-turn conversation
+ending in Case B, with the `SessionEnd` cleanup disabled so consecutive headless
+runs share one marker and reproduce a continuous session's injection pattern.
+
+| Arm | injections | Case B caught | lines |
+|---|---|---|---|
+| A: reminder present | 1 full + 2 reminders | 2/2 | 0 |
+| B: no reminder | 1 full + 0 | 2/2 | 0 |
+| B: no reminder, 7-turn conversation | 1 full + 0 | 1/1 | 0 |
+| B: no reminder, Case C on turn 3 | 1 full + 0 | 1/1 | 0 |
+
+No measurable difference, including with the triage 6 turns back. The reminder was
+removed. Regression after removal: A=1 line silent, B=0 asked, C=0 asked, F=1 line
+silent.
 
 The `PreToolUse` checkpoint is keyed on `prompt_id`, so it fires **once per
 request, not once per edit**. Measured on a request touching three files: 4 `Edit`

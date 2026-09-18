@@ -73,7 +73,7 @@ classifier, no state beyond one empty marker file in `/tmp`.
 
 ```
 hooks/gate.md              the triage, injected as context
-hooks/premise-gate.sh      UserPromptSubmit — full triage once, then a short reminder
+hooks/premise-gate.sh      UserPromptSubmit — full triage once per session, then silent
 hooks/precheck.json        the first-edit checkpoint
 hooks/premise-precheck.sh  PreToolUse on Edit|Write — fires once per request
 hooks/premise-rearm.sh     PostCompact / SessionEnd — re-arm and clean up
@@ -105,17 +105,28 @@ at this.
 **Why the gate is injected once per session, not per turn.** Claude Code keeps each
 turn's injected context as a transcript `attachment` that persists. Re-injecting
 750 tokens every turn would accumulate to ~37k over 50 turns while adding no
-information after the first copy. The first copy stays in context by itself, so
-subsequent prompts get a ~49-token reminder purely for recency. A `PostCompact`
-hook re-arms the full injection, because compaction can drop the original and
-leave the reminder pointing at nothing.
+information after the first copy — the first copy is still there.
+
+An earlier version kept a ~49-token reminder on later prompts for recency. It was
+removed after measuring it: with the reminder and without it, both the false-premise
+case and the vague-goal case were caught identically, including one run where the
+triage sat 6 turns back. It was not earning its keep, so prompts after the first
+now cost **zero**. That matters because this hook has no matcher and fires on every
+prompt — including "thanks" and questions that never touch code.
+
+A `PostCompact` hook re-arms the full injection, which matters more now that
+nothing else would remain if compaction summarized the original away.
 
 | | per prompt | 50-turn session |
 |---|---|---|
 | naive per-turn injection | ~753 tok | ~37,600 tok |
-| **this design** | ~753 then ~49 | **~3,150 tok** |
+| reminder version | ~753 then ~49 | ~3,150 tok |
+| **this design** | ~753 then **0** | **~753 tok** |
 
 Plus ~221 tokens always-on for the skill and command descriptions.
+
+The gate hook itself runs on every prompt, but after the first it writes nothing,
+so it adds no tokens.
 
 **The first-edit checkpoint fires once per request, not once per edit.** It is
 keyed on `prompt_id`, so the second and later edits of the same request run the
