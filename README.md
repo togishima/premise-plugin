@@ -177,13 +177,42 @@ however obviously right they look, each one picks a goal on your behalf.
 
 Anything else: one line naming the fork, and a question.
 
+## Subagents
+
+Claude Code delegates work to subagents that do not share the parent's context, so
+this was tested separately. Two things are true, both measured:
+
+**The gate does not reach subagents.** `UserPromptSubmit` fires only for the parent
+— no subagent event carries an `agent_id`. `SubagentStart` cannot stand in for it
+either: its `additionalContext` was probed with an observable side effect and does
+not reach the subagent. So a subagent sees its task prompt and nothing else.
+
+**The first-edit checkpoint does reach them.** Plugin `PreToolUse` hooks fire on
+subagent tool calls, carrying the subagent's `agent_id`.
+
+That leaves one layer of protection inside a subagent instead of two, which is
+mostly fine: the parent saw the gate and does the framing before delegating. The
+residual risk is a parent that passes an unverified premise into the task prompt,
+and there the checkpoint is what catches it.
+
+It only catches it because of a fix this testing forced. Subagents share the
+parent's `session_id` **and** `prompt_id`, so keying the once-per-request marker on
+those alone let whoever edited first consume the checkpoint for everyone: a parent
+making one trivial edit before delegating left the subagent completely unchecked,
+and with parallel subagents only one was ever checked. The marker is now keyed on
+`agent_id` too, so the parent and each subagent each get exactly one.
+
+Verified end to end: parent fixes a typo, then hands a subagent "app/orders.py を
+いい感じに速くして". The subagent stops and asks; `app/orders.py` is untouched.
+
 ## Known limitations
 
 - The checkpoint costs ~600 tokens once per request that touches code. Not free.
 - "More than one materially different change would fit" is the model's judgment,
   not a rule. It will sometimes be wrong in both directions.
-- Verified against one fixture and seven cases. That is a PoC, not evidence that
-  it holds across real work — which is what the next section is for.
+- A subagent gets the checkpoint but never the gate (see [Subagents](#subagents)).
+- Verified against one fixture and a handful of cases. That is a PoC, not evidence
+  that it holds across real work — which is what the next section is for.
 
 ## Measuring whether it helps
 

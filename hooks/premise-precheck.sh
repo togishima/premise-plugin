@@ -18,7 +18,15 @@ pid=$(printf '%s' "$input" | sed -n 's/.*"prompt_id"[[:space:]]*:[[:space:]]*"\(
 [ -n "$sid" ] || sid="nosession"
 [ -n "$pid" ] || pid="noprompt"
 
-marker="${TMPDIR:-/tmp}/premise-edit.$(id -u).${sid}.${pid}"
+# Subagents share the parent's session_id AND prompt_id, so keying on those alone
+# lets whoever edits first consume the checkpoint for everyone: a parent that makes
+# one trivial edit and then delegates the real implementation leaves the subagent
+# unchecked, and with parallel subagents only one is checked. Key on agent_id too,
+# so the parent and each subagent each get exactly one.
+aid=$(printf '%s' "$input" | sed -n 's/.*"agent_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+[ -n "$aid" ] || aid="main"
+
+marker="${TMPDIR:-/tmp}/premise-edit.$(id -u).${sid}.${pid}.${aid}"
 
 # Already asked for this prompt: stay out of the way.
 [ -f "$marker" ] && exit 0

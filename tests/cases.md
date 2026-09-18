@@ -158,6 +158,48 @@ Note that each headless `claude -p` run is a complete session lifecycle, so it
 always shows the full injection — the once-per-session effect is only observable
 in a continuous session.
 
+## Subagents
+
+Tested separately, because subagents do not share the parent's context and every
+case above ran on the main agent only.
+
+| Question | Method | Answer |
+|---|---|---|
+| Does `UserPromptSubmit` fire for a subagent? | logged every hook event across a delegation | **No** — only the parent's, no `agent_id` |
+| Can `SubagentStart` inject context instead? | injected "create /tmp/…/PROBE_OK first", checked for the file | **No** — file never created |
+| Do plugin `PreToolUse` hooks fire in a subagent? | logged invocations from inside the plugin's own hook | **Yes** — `agent_id` present, deny + retry visible |
+
+So a subagent has the checkpoint but not the gate, and `SubagentStart` cannot close
+that gap.
+
+### The bug this found
+
+Subagents share the parent's `session_id` **and** `prompt_id`. The marker was keyed
+on those two, so the checkpoint fired once per *request*, not once per *agent*:
+
+```
+before:  parent edit1: 2223 bytes   subagent1: 0 bytes   subagent2: 0 bytes
+after:   parent edit1: 2223 bytes   subagent1: 2223      subagent2: 2223
+         parent edit2: 0 bytes      subagent1 edit2: 0
+```
+
+A parent that made any trivial edit before delegating left the subagent unchecked,
+and with parallel subagents only one was checked. Fixed by adding `agent_id` to the
+key.
+
+End-to-end: parent fixes a typo, then delegates "app/orders.py をいい感じに速くして".
+Before the fix the subagent would refactor unchecked; after it, the subagent stops
+and asks, and `app/orders.py` shows no diff. Regression on the main path after the
+change: A=1 line silent, C=0 asked, F=1 line silent.
+
+### A measurement trap worth recording
+
+`premise-check` appears **zero** times in the main transcript for a subagent run,
+which looks exactly like the checkpoint never firing. It is an artifact: the
+subagent's context is not stored in the parent's transcript file. Logging from
+inside the hook itself is what settled it. Grepping the transcript is not a valid
+way to test whether a hook fired inside a subagent.
+
 ## Reproducing
 
 ```bash
