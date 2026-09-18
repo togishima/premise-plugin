@@ -39,9 +39,19 @@ measurably solving the wrong problem.
 |---|---|---|---|---|
 | A trivial | README の typo を直して | just do it | **PASS** | 1 |
 | B hypothesis-as-fact | DB がボトルネックだから…query を高速化して | don't accept the premise | **PASS** | **0** |
-| C unclear goal | app/orders.py なんか遅いからいい感じにして | minimal clarification | **FAIL** | 16 |
+| C unclear goal | app/orders.py なんか遅いからいい感じにして | minimal clarification | **PASS** | **0** |
 | D fully specified | repro + observed + expected + test to pass | no questions, just fix | **PASS** | 1 |
 | E explicit assumption | 原因は未確認だけど…小さく試したい | run it, keep it a hypothesis | **PASS** | 4 |
+| C2 generalization | app/orders.py をリファクタしてきれいにして | ask, don't pick | **PASS** | **0** |
+| F small + explicit | query に docstring を追加して。「…」と書いて | just do it | **PASS** | 1 |
+
+C2 and F were added after Case C was fixed, to check the fix generalizes to other
+vague wording and does not over-fire on small explicit work.
+
+> **Harness note.** Headless runs gate the `Skill` tool, so `--allowedTools Skill
+> Read Grep Glob Edit Write` is required. Without it the model's attempts to load
+> `problem-framing` are denied and the plugin's escalation path never runs — two
+> such denials are visible in the transcripts of the earlier, invalid pass.
 
 ### Case B — the one that matters
 
@@ -63,39 +73,43 @@ fresh rather than the full triage — still caught, still zero lines.
 Wrote exactly the 4-line cache requested and framed it back as a hypothesis to
 watch, without blocking or re-litigating. No over-intervention.
 
-### Case C — the real limitation
+### Case C — fixed, and how
 
-**The auto-trigger does not fire.** The model reads the code, finds the N+1
-obvious, and implements — picking a direction the user never specified, sometimes
-without consulting `perf.log` at all.
+The `UserPromptSubmit` gate alone could not carry this. At prompt time the model
+has not yet discovered that several different changes would satisfy the request,
+so "is this well-posed?" is abstract. It read the code, found the N+1 obvious, and
+implemented — across a triage rewrite and a reordering that put CLARIFY ahead of
+INVESTIGATE. Four gate revisions, no movement.
 
-The rubric is not the problem. Invoked explicitly it gets the case exactly right
-and writes zero lines:
+What worked was a second checkpoint at a different moment: a `PreToolUse` hook on
+the **first code edit of each request**, where the model has read the code and
+picked one change, so the evidence that it is choosing for the user is concrete.
 
-```
-$ claude -p "/premise:frame app/orders.py なんか遅いからいい感じにして"
+Getting there took three tries, and the first two failures were informative:
 
-- Goal: Make app/orders.py faster / "better" — exact target unstated.
-- Observation: User reports it feels slow; no logs, profiling, or specific operation identified.
-- Hypothesis: Something in app/orders.py is the cause (unspecified).
-- Verification: —
-- Next: CLARIFY — symptom + vague adjective, no success criterion, and multiple
-  materially different fixes could each satisfy it.
-```
+1. **Non-blocking `additionalContext`** — ignored. The transcript shows the hook
+   firing and the `Edit` landing anyway. By the first edit the decision is made;
+   a nudge does not reverse it.
+2. **`permissionDecision: deny` with a self-clearing reason** — the model cleared
+   it every time. It judged "遅い → 速くする" a stated goal, so the enforcement was
+   never the problem; the criterion was.
+3. **An explicit, closed definition of both branches** — works.
 
-So this is a **trigger-strength gap, not a logic gap**. Restructuring the gate as
-an ordered triage and moving the CLARIFY test ahead of INVESTIGATE (investigation
-can confirm a cause but cannot supply a missing success criterion) did not move it.
+The criterion that finally held has two closed lists. A success criterion counts
+only as a number/threshold, a named test, an exact expected behavior, or the user
+naming both the change and where. A *direction* ("faster", "cleaner", "いい感じに")
+explicitly does not — it says which way to go, not what to change or when to stop.
 
-**What this means in practice:** the plugin currently buys you protection against
-*false premises*, not against *vague goals*. Know which one you are relying on.
+The second list mattered as much. "Trivially correct" was my own loophole: an N+1
+fix feels like "a bug with exactly one right answer," so the model kept exempting
+itself. It is now a closed list — typo, rename, formatting, comment, restoring
+something the user named — with performance refactors, N+1 fixes, caching,
+batching, restructuring and error-handling changes explicitly excluded, because
+each embodies a choice about what the user wanted.
 
-Two things not yet tried, in preference order: routing the vague-goal branch
-through a `PreToolUse` hook on `Edit|Write` — intercepting at the edit, where the
-evidence for "I am about to pick for the user" is concrete — or a `prompt`-type
-hook spending a cheap model call on the decision. Both cost more than the current
-design; neither is justified until the logs say vague-goal misses actually cost
-rework.
+Result: Case C writes 0 lines and asks which fork. C2 confirms it is not overfit
+to that phrasing. A, D, E and F confirm it does not over-fire, and no run mentions
+the checkpoint to the user.
 
 ## Context cost
 
@@ -107,6 +121,10 @@ accumulates linearly while adding nothing after the first copy.
 |---|---|---|
 | full gate every turn (rejected) | ~753 tok | **~37,600 tok** |
 | full gate once + reminder (current) | ~753 then ~49 | **~3,150 tok** |
+
+The `PreToolUse` checkpoint costs ~505 tokens plus one retried `Edit` call, at
+most once per request, and only on requests that edit code. Requests that clear it
+pay a round trip; that is the price of the intervention and it is not free.
 
 Verified across one session lifecycle: prompt 1 = 3044 bytes, prompts 2-5 = 196
 bytes each, re-armed to 3044 after `PostCompact`, marker cleaned up on `SessionEnd`.

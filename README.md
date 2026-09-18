@@ -11,7 +11,9 @@ catch one specific failure:
 
 Measured on this repo's fixture, that exact request produces **16 lines of
 confident, wrong-target code** without the plugin and **0 lines plus one question**
-with it. See [`tests/cases.md`](tests/cases.md).
+with it. A vague request ("なんか遅いからいい感じにして") likewise goes from 16 lines
+of unasked-for refactor to one question. Typos, renames and fully specified bug
+fixes are untouched. See [`tests/cases.md`](tests/cases.md).
 
 ## Install
 
@@ -69,11 +71,23 @@ classifier, no state beyond one empty marker file in `/tmp`.
 
 ```
 hooks/gate.md              the triage, injected as context
-hooks/premise-gate.sh      UserPromptSubmit — decides full triage vs short reminder
+hooks/premise-gate.sh      UserPromptSubmit — full triage once, then a short reminder
+hooks/precheck.json        the first-edit checkpoint
+hooks/premise-precheck.sh  PreToolUse on Edit|Write — fires once per request
 hooks/premise-rearm.sh     PostCompact / SessionEnd — re-arm and clean up
 skills/problem-framing/    the full rubric, loaded only when the gate does not say READY
 commands/frame.md          /premise:frame — explicit, manual framing
 ```
+
+**Two checkpoints, at different moments.** The prompt-time gate catches false
+premises: "DB がボトルネックだから" is refutable before any code is read. It does
+*not* catch vague goals, because at prompt time the model has not yet discovered
+that several different changes would fit — the question is still abstract.
+
+So the second checkpoint sits at the **first code edit of each request**, where
+the model has read the code, picked one change, and the evidence that it is
+choosing the goal for the user is concrete. It fires at most once per request and
+only on requests that edit code.
 
 **Why a hook and not just a skill.** Skills fire when their description matches the
 conversation. But a dangerous request *looks exactly like a normal request* — "この
@@ -110,17 +124,35 @@ Plus ~221 tokens always-on for the skill and command descriptions.
 - It does not re-open a framing already settled in the conversation, and it does
   not ask twice. Asking twice is this check failing, not working.
 
-## Known limitation
+## What counts as a stated goal
 
-**It protects against false premises, not vague goals.** Case B (asserted cause)
-is caught reliably. Case C ("なんか遅いからいい感じにして") is not — the model finds
-a plausible fix and implements it rather than asking. The rubric itself gets that
-case right when invoked explicitly via `/premise:frame`; the auto-trigger is what
-under-fires. Restructuring the gate did not close it. Details and the two
-candidate fixes are in [`tests/cases.md`](tests/cases.md).
+The first-edit checkpoint turns on one distinction, kept deliberately explicit
+because the vaguer version did not work. A success criterion counts only if it is:
 
-Until that is closed, `/premise:frame` is the reliable path for "I am not sure this
-request is well-posed."
+- a number or threshold — "under 300ms", "half the queries"
+- a named test or assertion to make pass
+- an exact expected behavior — "should return 400, not 500"
+- the change and its location, named by you — "cache the profile lookup in `list_orders`"
+
+A **direction** is not a criterion: "faster", "cleaner", "better", "いい感じに",
+"最適化して". It says which way to go, not what to change or when to stop.
+
+Without a criterion, the edit proceeds anyway if it is on a closed list of changes
+that cannot embody a goal choice: a typo, a rename, formatting, a comment, or
+restoring something you named. Performance refactors, N+1 fixes, caching, batching,
+restructuring and error-handling changes are deliberately **not** on that list —
+however obviously right they look, each one picks a goal on your behalf.
+
+Anything else: one line naming the fork, and a question.
+
+## Known limitations
+
+- The checkpoint costs ~505 tokens and one retried `Edit` call on requests that
+  clear it. Not free, and paid on every request that touches code.
+- "More than one materially different change would fit" is the model's judgment,
+  not a rule. It will sometimes be wrong in both directions.
+- Verified against one fixture and seven cases. That is a PoC, not evidence that
+  it holds across real work — which is what the next section is for.
 
 ## Measuring whether it helps
 
