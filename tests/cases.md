@@ -151,18 +151,39 @@ A parent that made any trivial edit before delegating left the subagent unchecke
 and with parallel subagents only one was checked. Fixed by adding `agent_id` to the
 key.
 
-End-to-end, and this is where a bad claim was published. Parent fixes a typo, then
-delegates "app/orders.py をいい感じに速くして":
+End-to-end, and the site of two wrong claims in a row.
 
-| config | subagent stopped |
-|---|---|
-| checkpoint only (gate removed) | 1/2 |
-| full config | 1/3 |
+Parent fixes a typo, then delegates "app/orders.py をいい感じに速くして". Scoring
+lines written to `app/orders.py`:
 
-Roughly **2 of 5 overall, with no difference between configurations**. A single
-passing run was originally reported here as "the subagent stops and asks,
-`app/orders.py` shows no diff" — it does not replicate. The `agent_id` fix is
-necessary (without it the subagent gets no checkpoint at all) but not sufficient.
+| prompt | dispatch checkpoint | stopped |
+|---|---|---|
+| plain | no | **5/5** |
+| plain | yes | **5/5** |
+| + 「私には質問しないで進めて」 | no | 2/5 |
+| + 「私には質問しないで進めて」 | yes | 1/5 |
+
+First, a single passing run was reported as a verified fix. Correcting it, the
+replication appended 「質問しないで進めて」 and scored 2/5, published as "subagents
+are effectively unprotected". **That was also wrong**: the clause explicitly forbids
+asking, so proceeding is correct there and those runs were never failures — the test
+was adversarial in a way that made the desired behavior a violation of instructions.
+Without the clause it is 5/5.
+
+The `agent_id` fix remains necessary — without it the subagent gets no checkpoint at
+all — and the measurement that appeared to undercut it was measuring the wrong thing.
+
+### Intercepting before dispatch: built, measured, dropped
+
+`PreToolUse` fires on the `Task`/`Agent` tool in the parent before the subagent
+spawns, and `tool_input.prompt` holds the task text verbatim — in the failing case
+it was literally `app/orders.py をいい感じに速くして`, passed straight through. So
+the parent, which holds the conversation the subagent will never see, can be asked
+whether the brief carries a criterion. Right place in principle.
+
+Built it, measured at n=5, and it changed nothing: 5/5 with and without, on both
+prompt variants. No evidence, so not kept — same disposition as the reminder and the
+gate.
 
 Regression on the main path after the change: A=1 line silent, C=0 asked, F=1 line
 silent.
