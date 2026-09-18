@@ -1,22 +1,12 @@
 {
   "hooks": {
-    "UserPromptSubmit": [
+    "PreToolUse": [
       {
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/premise-gate.sh",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/premise-rearm.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/premise-precheck.sh",
             "timeout": 5
           }
         ]
@@ -27,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/premise-rearm.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/premise-cleanup.sh",
             "timeout": 5
           }
         ]

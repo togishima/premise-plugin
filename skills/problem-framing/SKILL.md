@@ -20,7 +20,7 @@ are usually easy.
 | **Goal** | The outcome the user wants, at the level they care about ("p95 under 300ms", "the flaky test stops failing") | The change they proposed |
 | **Observation** | Something verified: a symptom the user saw, a log line, a failing test, a measurement, code you have read | Anything inferred from those |
 | **Hypothesis** | A claimed cause, a claimed fix, a claimed mechanism — regardless of how confidently it was stated | Ruled out or confirmed |
-| **Verification** | The check that closes the loop: a test, a metric, a repro that stops reproducing | "looks better" |
+| **Verification** | The check that closes the loop: a test, a metric, a repro that stops reproducing | "looks better", "faster" |
 
 A request usually arrives with the Hypothesis in the imperative mood. "Speed up
 this SQL" is a proposed fix; the Observation behind it may only be "the page feels
@@ -40,7 +40,10 @@ is INVESTIGATE.
 Work down this list and take the first that fits:
 
 **CLARIFY** — Goal or Verification is missing, and different readings lead to
-materially different work. Ask the smallest set of questions that closes the gap
+materially different work. A success criterion counts only as a number or
+threshold, a named test to pass, an exact expected behavior, or the user naming
+both the change and where it goes. A direction — "faster", "cleaner", "いい感じに"
+— is not one: it says which way to go, not what to change or when to stop. Ask the smallest set of questions that closes the gap
 (usually one or two), then stop. Never ask for all four. Never ask for something
 you could find yourself in the codebase — that is INVESTIGATE, not CLARIFY.
 

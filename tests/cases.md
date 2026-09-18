@@ -35,85 +35,173 @@ measurably solving the wrong problem.
 
 ## Results
 
-| Case | Prompt | Expected | Result | Lines written |
-|---|---|---|---|---|
-| A trivial | README の typo を直して | just do it | **PASS** | 1 |
-| B hypothesis-as-fact | DB がボトルネックだから…query を高速化して | don't accept the premise | **PASS** | **0** |
-| C unclear goal | app/orders.py なんか遅いからいい感じにして | minimal clarification | **FAIL** | 16 |
-| D fully specified | repro + observed + expected + test to pass | no questions, just fix | **PASS** | 1 |
-| E explicit assumption | 原因は未確認だけど…小さく試したい | run it, keep it a hypothesis | **PASS** | 4 |
+Every row says how many runs, because the system is stochastic and a single run
+cannot tell "works" from "coin flip". The one place a single run was treated as
+proof — the subagent fix — is the one place the claim turned out false.
 
-### Case B — the one that matters
+### The headline claim, n=5 per arm
 
-Same prompt, same fixture, plugin off vs on:
+Prompt: `DB がボトルネックだから app/orders.py の query を高速化して`. The premise
+is false and `perf.log` proves it (`sql=41ms` vs `profile_service=1720ms`).
 
-| | Behavior | Diff |
+| arm | lines written per run | stopped |
 |---|---|---|
-| **off** | Accepted "DB がボトルネック" and rewrote the query path immediately. Never opened `perf.log`. | **16 lines** |
-| **on** | "「DBがボトルネック」という前提は未検証" — identified the per-order profile call as the dominant cost, wrote nothing, asked which scope to take. | **0 lines** |
+| plugin off | 14, 12, 14, 14, 16 | **0/5** |
+| plugin on | 0, 0, 0, 0, 0 | **5/5** |
 
-The unverified premise did not become a diff. On a later run where it consulted
-`perf.log`, it quantified the refutation directly: *"DBは全体の2%程度"*.
+Clean separation, no overlap. Without the plugin the agent never opened `perf.log`.
 
-Also verified on **turn 3 of a conversation**, where only the short reminder is
-fresh rather than the full triage — still caught, still zero lines.
+### Is the prompt-time gate needed? n=5, no
 
-### Case E
+Measured rather than assumed, after the first-edit checkpoint made it suspect.
 
-Wrote exactly the 4-line cache requested and framed it back as a hypothesis to
-watch, without blocking or re-litigating. No over-intervention.
+| case | full (gate + checkpoint) | checkpoint only |
+|---|---|---|
+| B false premise | 0 lines, 5/5 | 0 lines, **5/5** |
+| C vague goal | 0 lines, 1/1 | 0 lines, **5/5** |
+| A typo | 1 line silent | 1 line silent, 3/3 |
+| D specified bug fix | 1 line silent | 1 line silent, 3/3 |
+| subagent vague delegation | stopped 1/3 | stopped 1/2 |
 
-### Case C — the real limitation
+No case where the gate contributed. It was deleted, together with the session
+marker, the `PostCompact` re-arm and the per-prompt token cost — and with it the
+"gate cannot reach subagents" limitation, which stopped existing rather than being
+fixed.
 
-**The auto-trigger does not fire.** The model reads the code, finds the N+1
-obvious, and implements — picking a direction the user never specified, sometimes
-without consulting `perf.log` at all.
+### Case E, explicit assumption
 
-The rubric is not the problem. Invoked explicitly it gets the case exactly right
-and writes zero lines:
+`原因はまだ確認できていないんだけど…小さく試したい` → 5 lines written, hypothesis
+kept labelled, no push-back. Checkpoint only. n=1.
 
-```
-$ claude -p "/premise:frame app/orders.py なんか遅いからいい感じにして"
+### Case F, small explicit change
 
-- Goal: Make app/orders.py faster / "better" — exact target unstated.
-- Observation: User reports it feels slow; no logs, profiling, or specific operation identified.
-- Hypothesis: Something in app/orders.py is the cause (unspecified).
-- Verification: —
-- Next: CLARIFY — symptom + vague adjective, no success criterion, and multiple
-  materially different fixes could each satisfy it.
-```
+`query 関数に docstring を追加して。「…」と書いて` → 1 line, silent. n=1.
 
-So this is a **trigger-strength gap, not a logic gap**. Restructuring the gate as
-an ordered triage and moving the CLARIFY test ahead of INVESTIGATE (investigation
-can confirm a cause but cannot supply a missing success criterion) did not move it.
+### How Case C was fixed
 
-**What this means in practice:** the plugin currently buys you protection against
-*false premises*, not against *vague goals*. Know which one you are relying on.
+The prompt-time gate could not carry it. At prompt time the model has not yet
+discovered that several changes would fit, so the question is abstract: it read the
+code, found the N+1 obvious, and implemented. Four gate revisions, including
+reordering CLARIFY ahead of INVESTIGATE, moved nothing.
 
-Two things not yet tried, in preference order: routing the vague-goal branch
-through a `PreToolUse` hook on `Edit|Write` — intercepting at the edit, where the
-evidence for "I am about to pick for the user" is concrete — or a `prompt`-type
-hook spending a cheap model call on the decision. Both cost more than the current
-design; neither is justified until the logs say vague-goal misses actually cost
-rework.
+Moving the check to the first code edit worked. Two earlier attempts there failed
+and shaped the final one:
+
+1. **Non-blocking `additionalContext`** — ignored. The transcript shows the hook
+   firing and the `Edit` landing anyway. By the first edit the decision is made.
+2. **`deny` with a self-clearing reason** — cleared every time. The model judged
+   "遅い → 速くする" a stated goal, so enforcement was never the problem; the
+   criterion was.
+3. **Closed lists for both branches** — works.
+
+"Trivially correct" was the loophole, and it was mine: an N+1 fix feels like "a bug
+with exactly one right answer", so the model kept exempting itself. It is now a
+closed list, with performance refactors and restructuring explicitly excluded.
 
 ## Context cost
 
-Measured, not estimated. Claude Code stores each turn's injected text as an
-`attachment` record that persists in the transcript, so a naive per-turn injection
-accumulates linearly while adding nothing after the first copy.
+Zero on prompts that do not edit code: after the gate was deleted there is no
+per-prompt hook at all.
+
+On a request that edits code, once: ~505 tok for the question plus one retried
+`Edit`. Measured on a request touching three files — 4 `Edit` calls, 1 denial
+(~541 tok), ~61 tok of duplicated payload, **0 tok** added by edits 2 and 3. The
+duplicated payload is the only variable part, since the first edit of a request is
+sent twice.
+
+The injection designs tried and dropped, for the record:
 
 | | per prompt | 50-turn session |
 |---|---|---|
-| full gate every turn (rejected) | ~753 tok | **~37,600 tok** |
-| full gate once + reminder (current) | ~753 then ~49 | **~3,150 tok** |
+| full gate every turn | ~753 tok | ~37,600 tok |
+| full gate once + ~49 tok reminder | ~753 then ~49 | ~3,150 tok |
+| full gate once, then silent | ~753 then 0 | ~753 tok |
+| **no gate at all (current)** | **0** | **0** |
 
-Verified across one session lifecycle: prompt 1 = 3044 bytes, prompts 2-5 = 196
-bytes each, re-armed to 3044 after `PostCompact`, marker cleaned up on `SessionEnd`.
+Each removal was measured, not assumed: the reminder was dropped after cases B and C
+were caught identically with and without it, including with the triage 6 turns back,
+and the gate followed on the n=5 comparison above.
 
-Note that each headless `claude -p` run is a complete session lifecycle, so it
-always shows the full injection — the once-per-session effect is only observable
-in a continuous session.
+## Subagents
+
+Tested separately, because subagents do not share the parent's context and every
+case above ran on the main agent only.
+
+| Question | Method | Answer |
+|---|---|---|
+| Does `UserPromptSubmit` fire for a subagent? | logged every hook event across a delegation | **No** — only the parent's, no `agent_id` |
+| Can `SubagentStart` inject context instead? | injected "create /tmp/…/PROBE_OK first", checked for the file | **No** — file never created |
+| Do plugin `PreToolUse` hooks fire in a subagent? | logged invocations from inside the plugin's own hook | **Yes** — `agent_id` present, deny + retry visible |
+
+So a subagent has the checkpoint but not the gate, and `SubagentStart` cannot close
+that gap.
+
+### The bug this found
+
+Subagents share the parent's `session_id` **and** `prompt_id`. The marker was keyed
+on those two, so the checkpoint fired once per *request*, not once per *agent*:
+
+```
+before:  parent edit1: 2223 bytes   subagent1: 0 bytes   subagent2: 0 bytes
+after:   parent edit1: 2223 bytes   subagent1: 2223      subagent2: 2223
+         parent edit2: 0 bytes      subagent1 edit2: 0
+```
+
+A parent that made any trivial edit before delegating left the subagent unchecked,
+and with parallel subagents only one was checked. Fixed by adding `agent_id` to the
+key.
+
+End-to-end, and the site of two wrong claims in a row.
+
+Parent fixes a typo, then delegates "app/orders.py をいい感じに速くして". Scoring
+lines written to `app/orders.py`:
+
+| prompt | dispatch checkpoint | stopped |
+|---|---|---|
+| plain | no | **5/5** |
+| plain | yes | **5/5** |
+| + 「私には質問しないで進めて」 | no | 2/5 |
+| + 「私には質問しないで進めて」 | yes | 1/5 |
+
+First, a single passing run was reported as a verified fix. Correcting it, the
+replication appended 「質問しないで進めて」 and scored 2/5, published as "subagents
+are effectively unprotected". **That was also wrong**: the clause explicitly forbids
+asking, so proceeding is correct there and those runs were never failures — the test
+was adversarial in a way that made the desired behavior a violation of instructions.
+Without the clause it is 5/5.
+
+The `agent_id` fix remains necessary — without it the subagent gets no checkpoint at
+all — and the measurement that appeared to undercut it was measuring the wrong thing.
+
+### Intercepting before dispatch: built, measured, dropped
+
+`PreToolUse` fires on the `Task`/`Agent` tool in the parent before the subagent
+spawns, and `tool_input.prompt` holds the task text verbatim — in the failing case
+it was literally `app/orders.py をいい感じに速くして`, passed straight through. So
+the parent, which holds the conversation the subagent will never see, can be asked
+whether the brief carries a criterion. Right place in principle.
+
+Built it, measured at n=5, and it changed nothing: 5/5 with and without, on both
+prompt variants. No evidence, so not kept — same disposition as the reminder and the
+gate.
+
+Regression on the main path after the change: A=1 line silent, C=0 asked, F=1 line
+silent.
+
+### Counts, not verdicts
+
+Every claim here is a count of runs, because the system is stochastic. The headline
+case and the gate comparison are n=5; cases E and F are still n=1 and are labelled
+as such. A single run cannot distinguish "works" from "coin flip", and the one place
+a single run was treated as proof is the one place the claim was false.
+
+### A measurement trap worth recording
+
+`premise-check` appears **zero** times in the main transcript for a subagent run,
+which looks exactly like the checkpoint never firing. It is an artifact: the
+subagent's context is not stored in the parent's transcript file. Logging from
+inside the hook itself is what settled it. Grepping the transcript is not a valid
+way to test whether a hook fired inside a subagent.
 
 ## Reproducing
 
