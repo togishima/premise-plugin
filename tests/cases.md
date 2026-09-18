@@ -187,10 +187,29 @@ A parent that made any trivial edit before delegating left the subagent unchecke
 and with parallel subagents only one was checked. Fixed by adding `agent_id` to the
 key.
 
-End-to-end: parent fixes a typo, then delegates "app/orders.py をいい感じに速くして".
-Before the fix the subagent would refactor unchecked; after it, the subagent stops
-and asks, and `app/orders.py` shows no diff. Regression on the main path after the
-change: A=1 line silent, C=0 asked, F=1 line silent.
+End-to-end, and this is where a bad claim was published. Parent fixes a typo, then
+delegates "app/orders.py をいい感じに速くして":
+
+| config | subagent stopped |
+|---|---|
+| checkpoint only (gate removed) | 1/2 |
+| full config | 1/3 |
+
+Roughly **2 of 5 overall, with no difference between configurations**. A single
+passing run was originally reported here as "the subagent stops and asks,
+`app/orders.py` shows no diff" — it does not replicate. The `agent_id` fix is
+necessary (without it the subagent gets no checkpoint at all) but not sufficient.
+
+Regression on the main path after the change: A=1 line silent, C=0 asked, F=1 line
+silent.
+
+### Every result above is a count, not a rate
+
+The system is stochastic and almost every row in this file is n=1 or n=2. A "PASS"
+means "passed the runs that were done", not "passes". The main-agent cases have
+held across more runs (Case C stopped in 4/4 after its fix; A, D and F proceeded
+silently in every run), but none of it is a measured rate, and the one place a
+single run was treated as proof is the one place the claim was false.
 
 ### A measurement trap worth recording
 

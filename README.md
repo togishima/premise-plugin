@@ -202,15 +202,26 @@ making one trivial edit before delegating left the subagent completely unchecked
 and with parallel subagents only one was ever checked. The marker is now keyed on
 `agent_id` too, so the parent and each subagent each get exactly one.
 
-Verified end to end: parent fixes a typo, then hands a subagent "app/orders.py を
-いい感じに速くして". The subagent stops and asks; `app/orders.py` is untouched.
+**This is not reliable, and the earlier claim here was wrong.** Parent fixes a typo,
+then hands a subagent "app/orders.py をいい感じに速くして": the subagent stops and
+asks in roughly **2 of 5 runs** and implements unasked in the rest. An earlier
+version of this section reported a single passing run as a verified fix. It does
+not replicate, and removing the gate entirely does not change the rate (1/2 vs
+1/3), so the `agent_id` fix was necessary but is not sufficient.
+
+Treat the subagent path as **unprotected** until this is measured properly and
+raised.
 
 ## Known limitations
 
 - The checkpoint costs ~600 tokens once per request that touches code. Not free.
 - "More than one materially different change would fit" is the model's judgment,
   not a rule. It will sometimes be wrong in both directions.
-- A subagent gets the checkpoint but never the gate (see [Subagents](#subagents)).
+- A subagent gets the checkpoint but never the gate, and the vague-goal case is
+  caught there only ~2 of 5 runs (see [Subagents](#subagents)).
+- **Every result in this repo is a small-n count, not a rate.** The behavior is
+  stochastic, so a single passing run means very little — one such run was
+  published here as a verified fix and did not replicate.
 - Verified against one fixture and a handful of cases. That is a PoC, not evidence
   that it holds across real work — which is what the next section is for.
 
