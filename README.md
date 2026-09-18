@@ -157,13 +157,28 @@ was not kept, for the same reason the reminder and the gate were dropped.
 No scoring, no telemetry — those would be a second thing to maintain before knowing
 whether the first works. What to watch, from data Claude Code already keeps:
 
-**The transcripts** (`~/.claude/projects/<project>/*.jsonl`):
+**The transcripts.** The checkpoint already leaves a full record, so nothing needs
+instrumenting and the plugin ships no telemetry. `tools/checkpoint-log.py` reads it:
 
-- How often a denied first edit turned into a question instead of a retry — and how
-  often that question was one you were glad to answer.
-- How often you answered a question with "just do it". That is the over-asking rate,
-  and it is the number that decides whether this is worth keeping.
-- `problem-framing` skill loads: how often the check escalated.
+```bash
+python3 tools/checkpoint-log.py --asked-only
+```
+
+Each firing comes back with the request that triggered it, whether the model cleared
+the check and wrote code anyway or stopped, and **what you said next** — which is the
+part that tells you whether the question was wanted. The script does not judge that;
+a classifier here would be one more thing to maintain and to be wrong about. Read the
+rows and count.
+
+**The over-asking rate** is the number that decides whether this is worth keeping: of
+the rows where it stopped and asked, how many did you answer with some form of "just
+do it".
+
+Two limits, both measured: firings inside a subagent are invisible, because a
+subagent's context is not written to the parent's transcript; and only requests that
+actually attempted an edit are recorded, since the hook cannot fire otherwise — on
+this repo's own test transcripts that was 12 of 48 requests. Neither affects the
+over-asking rate, which is about firings by definition.
 
 **The diffs.** Lines written before the problem was understood. `git diff --stat` on
 a branch that got reverted is the cost this is trying to avoid.
