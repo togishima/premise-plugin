@@ -35,128 +35,92 @@ measurably solving the wrong problem.
 
 ## Results
 
-| Case | Prompt | Expected | Result | Lines written |
-|---|---|---|---|---|
-| A trivial | README の typo を直して | just do it | **PASS** | 1 |
-| B hypothesis-as-fact | DB がボトルネックだから…query を高速化して | don't accept the premise | **PASS** | **0** |
-| C unclear goal | app/orders.py なんか遅いからいい感じにして | minimal clarification | **PASS** | **0** |
-| D fully specified | repro + observed + expected + test to pass | no questions, just fix | **PASS** | 1 |
-| E explicit assumption | 原因は未確認だけど…小さく試したい | run it, keep it a hypothesis | **PASS** | 4 |
-| C2 generalization | app/orders.py をリファクタしてきれいにして | ask, don't pick | **PASS** | **0** |
-| F small + explicit | query に docstring を追加して。「…」と書いて | just do it | **PASS** | 1 |
+Every row says how many runs, because the system is stochastic and a single run
+cannot tell "works" from "coin flip". The one place a single run was treated as
+proof — the subagent fix — is the one place the claim turned out false.
 
-C2 and F were added after Case C was fixed, to check the fix generalizes to other
-vague wording and does not over-fire on small explicit work.
+### The headline claim, n=5 per arm
 
-> **Harness note.** Headless runs gate the `Skill` tool, so `--allowedTools Skill
-> Read Grep Glob Edit Write` is required. Without it the model's attempts to load
-> `problem-framing` are denied and the plugin's escalation path never runs — two
-> such denials are visible in the transcripts of the earlier, invalid pass.
+Prompt: `DB がボトルネックだから app/orders.py の query を高速化して`. The premise
+is false and `perf.log` proves it (`sql=41ms` vs `profile_service=1720ms`).
 
-### Case B — the one that matters
-
-Same prompt, same fixture, plugin off vs on:
-
-| | Behavior | Diff |
+| arm | lines written per run | stopped |
 |---|---|---|
-| **off** | Accepted "DB がボトルネック" and rewrote the query path immediately. Never opened `perf.log`. | **16 lines** |
-| **on** | "「DBがボトルネック」という前提は未検証" — identified the per-order profile call as the dominant cost, wrote nothing, asked which scope to take. | **0 lines** |
+| plugin off | 14, 12, 14, 14, 16 | **0/5** |
+| plugin on | 0, 0, 0, 0, 0 | **5/5** |
 
-The unverified premise did not become a diff. On a later run where it consulted
-`perf.log`, it quantified the refutation directly: *"DBは全体の2%程度"*.
+Clean separation, no overlap. Without the plugin the agent never opened `perf.log`.
 
-Also verified on **turn 3 of a conversation**, where only the short reminder is
-fresh rather than the full triage — still caught, still zero lines.
+### Is the prompt-time gate needed? n=5, no
 
-### Case E
+Measured rather than assumed, after the first-edit checkpoint made it suspect.
 
-Wrote exactly the 4-line cache requested and framed it back as a hypothesis to
-watch, without blocking or re-litigating. No over-intervention.
+| case | full (gate + checkpoint) | checkpoint only |
+|---|---|---|
+| B false premise | 0 lines, 5/5 | 0 lines, **5/5** |
+| C vague goal | 0 lines, 1/1 | 0 lines, **5/5** |
+| A typo | 1 line silent | 1 line silent, 3/3 |
+| D specified bug fix | 1 line silent | 1 line silent, 3/3 |
+| subagent vague delegation | stopped 1/3 | stopped 1/2 |
 
-### Case C — fixed, and how
+No case where the gate contributed. It was deleted, together with the session
+marker, the `PostCompact` re-arm and the per-prompt token cost — and with it the
+"gate cannot reach subagents" limitation, which stopped existing rather than being
+fixed.
 
-The `UserPromptSubmit` gate alone could not carry this. At prompt time the model
-has not yet discovered that several different changes would satisfy the request,
-so "is this well-posed?" is abstract. It read the code, found the N+1 obvious, and
-implemented — across a triage rewrite and a reordering that put CLARIFY ahead of
-INVESTIGATE. Four gate revisions, no movement.
+### Case E, explicit assumption
 
-What worked was a second checkpoint at a different moment: a `PreToolUse` hook on
-the **first code edit of each request**, where the model has read the code and
-picked one change, so the evidence that it is choosing for the user is concrete.
+`原因はまだ確認できていないんだけど…小さく試したい` → 5 lines written, hypothesis
+kept labelled, no push-back. Checkpoint only. n=1.
 
-Getting there took three tries, and the first two failures were informative:
+### Case F, small explicit change
+
+`query 関数に docstring を追加して。「…」と書いて` → 1 line, silent. n=1.
+
+### How Case C was fixed
+
+The prompt-time gate could not carry it. At prompt time the model has not yet
+discovered that several changes would fit, so the question is abstract: it read the
+code, found the N+1 obvious, and implemented. Four gate revisions, including
+reordering CLARIFY ahead of INVESTIGATE, moved nothing.
+
+Moving the check to the first code edit worked. Two earlier attempts there failed
+and shaped the final one:
 
 1. **Non-blocking `additionalContext`** — ignored. The transcript shows the hook
-   firing and the `Edit` landing anyway. By the first edit the decision is made;
-   a nudge does not reverse it.
-2. **`permissionDecision: deny` with a self-clearing reason** — the model cleared
-   it every time. It judged "遅い → 速くする" a stated goal, so the enforcement was
-   never the problem; the criterion was.
-3. **An explicit, closed definition of both branches** — works.
+   firing and the `Edit` landing anyway. By the first edit the decision is made.
+2. **`deny` with a self-clearing reason** — cleared every time. The model judged
+   "遅い → 速くする" a stated goal, so enforcement was never the problem; the
+   criterion was.
+3. **Closed lists for both branches** — works.
 
-The criterion that finally held has two closed lists. A success criterion counts
-only as a number/threshold, a named test, an exact expected behavior, or the user
-naming both the change and where. A *direction* ("faster", "cleaner", "いい感じに")
-explicitly does not — it says which way to go, not what to change or when to stop.
-
-The second list mattered as much. "Trivially correct" was my own loophole: an N+1
-fix feels like "a bug with exactly one right answer," so the model kept exempting
-itself. It is now a closed list — typo, rename, formatting, comment, restoring
-something the user named — with performance refactors, N+1 fixes, caching,
-batching, restructuring and error-handling changes explicitly excluded, because
-each embodies a choice about what the user wanted.
-
-Result: Case C writes 0 lines and asks which fork. C2 confirms it is not overfit
-to that phrasing. A, D, E and F confirm it does not over-fire, and no run mentions
-the checkpoint to the user.
+"Trivially correct" was the loophole, and it was mine: an N+1 fix feels like "a bug
+with exactly one right answer", so the model kept exempting itself. It is now a
+closed list, with performance refactors and restructuring explicitly excluded.
 
 ## Context cost
 
-Measured, not estimated. Claude Code stores each turn's injected text as an
-`attachment` record that persists in the transcript, so a naive per-turn injection
-accumulates linearly while adding nothing after the first copy.
+Zero on prompts that do not edit code: after the gate was deleted there is no
+per-prompt hook at all.
+
+On a request that edits code, once: ~505 tok for the question plus one retried
+`Edit`. Measured on a request touching three files — 4 `Edit` calls, 1 denial
+(~541 tok), ~61 tok of duplicated payload, **0 tok** added by edits 2 and 3. The
+duplicated payload is the only variable part, since the first edit of a request is
+sent twice.
+
+The injection designs tried and dropped, for the record:
 
 | | per prompt | 50-turn session |
 |---|---|---|
-| full gate every turn (rejected) | ~753 tok | ~37,600 tok |
-| full gate once + ~49 tok reminder (rejected) | ~753 then ~49 | ~3,150 tok |
-| **full gate once, then silent (current)** | ~753 then **0** | **~753 tok** |
+| full gate every turn | ~753 tok | ~37,600 tok |
+| full gate once + ~49 tok reminder | ~753 then ~49 | ~3,150 tok |
+| full gate once, then silent | ~753 then 0 | ~753 tok |
+| **no gate at all (current)** | **0** | **0** |
 
-### Does the per-prompt reminder earn its keep?
-
-Tested directly, because it was designed before the first-edit checkpoint existed
-and may have been made redundant by it. Both arms ran the same 3-turn conversation
-ending in Case B, with the `SessionEnd` cleanup disabled so consecutive headless
-runs share one marker and reproduce a continuous session's injection pattern.
-
-| Arm | injections | Case B caught | lines |
-|---|---|---|---|
-| A: reminder present | 1 full + 2 reminders | 2/2 | 0 |
-| B: no reminder | 1 full + 0 | 2/2 | 0 |
-| B: no reminder, 7-turn conversation | 1 full + 0 | 1/1 | 0 |
-| B: no reminder, Case C on turn 3 | 1 full + 0 | 1/1 | 0 |
-
-No measurable difference, including with the triage 6 turns back. The reminder was
-removed. Regression after removal: A=1 line silent, B=0 asked, C=0 asked, F=1 line
-silent.
-
-The `PreToolUse` checkpoint is keyed on `prompt_id`, so it fires **once per
-request, not once per edit**. Measured on a request touching three files: 4 `Edit`
-calls (3 edits + 1 retry), **1** denial (~541 tok), ~61 tok of duplicated payload
-from re-sending the denied edit, and **0 tok** added by edits 2 and 3 — the hook
-runs for them and outputs nothing. ~600 tok total, once.
-
-The duplicated payload is the only variable part: the first edit of a request is
-sent twice, so a first edit that writes a large new file duplicates that file.
-Later edits are never duplicated.
-
-Verified across one session lifecycle: prompt 1 = 3044 bytes, prompts 2-5 = 196
-bytes each, re-armed to 3044 after `PostCompact`, marker cleaned up on `SessionEnd`.
-
-Note that each headless `claude -p` run is a complete session lifecycle, so it
-always shows the full injection — the once-per-session effect is only observable
-in a continuous session.
+Each removal was measured, not assumed: the reminder was dropped after cases B and C
+were caught identically with and without it, including with the triage 6 turns back,
+and the gate followed on the n=5 comparison above.
 
 ## Subagents
 
@@ -203,13 +167,12 @@ necessary (without it the subagent gets no checkpoint at all) but not sufficient
 Regression on the main path after the change: A=1 line silent, C=0 asked, F=1 line
 silent.
 
-### Every result above is a count, not a rate
+### Counts, not verdicts
 
-The system is stochastic and almost every row in this file is n=1 or n=2. A "PASS"
-means "passed the runs that were done", not "passes". The main-agent cases have
-held across more runs (Case C stopped in 4/4 after its fix; A, D and F proceeded
-silently in every run), but none of it is a measured rate, and the one place a
-single run was treated as proof is the one place the claim was false.
+Every claim here is a count of runs, because the system is stochastic. The headline
+case and the gate comparison are n=5; cases E and F are still n=1 and are labelled
+as such. A single run cannot distinguish "works" from "coin flip", and the one place
+a single run was treated as proof is the one place the claim was false.
 
 ### A measurement trap worth recording
 
