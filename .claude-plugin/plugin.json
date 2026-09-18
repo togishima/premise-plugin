@@ -1,0 +1,13 @@
+{
+  "name": "premise",
+  "displayName": "Premise",
+  "version": "0.1.0",
+  "description": "Runs a silent problem-framing check before implementation, so unverified premises are not amplified into code. Separates Goal / Observation / Hypothesis / Verification and intervenes only when ambiguity is actually expensive.",
+  "author": {
+    "name": "togishima"
+  },
+  "repository": "https://github.com/togishima/premise-plugin",
+  "license": "MIT",
+  "keywords": ["problem-framing", "premise", "hypothesis", "guardrail", "review"],
+  "hooks": "./hooks/hooks.json"
+}

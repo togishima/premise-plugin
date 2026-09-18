@@ -1,0 +1,16 @@
+{
+  "name": "premise-marketplace",
+  "owner": {
+    "name": "togishima",
+    "url": "https://github.com/togishima"
+  },
+  "description": "Problem-framing guardrail for Claude Code.",
+  "plugins": [
+    {
+      "name": "premise",
+      "source": "./",
+      "description": "Frame the problem before implementing: keep Observation and Hypothesis apart.",
+      "version": "0.1.0"
+    }
+  ]
+}
