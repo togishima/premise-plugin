@@ -122,9 +122,15 @@ accumulates linearly while adding nothing after the first copy.
 | full gate every turn (rejected) | ~753 tok | **~37,600 tok** |
 | full gate once + reminder (current) | ~753 then ~49 | **~3,150 tok** |
 
-The `PreToolUse` checkpoint costs ~505 tokens plus one retried `Edit` call, at
-most once per request, and only on requests that edit code. Requests that clear it
-pay a round trip; that is the price of the intervention and it is not free.
+The `PreToolUse` checkpoint is keyed on `prompt_id`, so it fires **once per
+request, not once per edit**. Measured on a request touching three files: 4 `Edit`
+calls (3 edits + 1 retry), **1** denial (~541 tok), ~61 tok of duplicated payload
+from re-sending the denied edit, and **0 tok** added by edits 2 and 3 — the hook
+runs for them and outputs nothing. ~600 tok total, once.
+
+The duplicated payload is the only variable part: the first edit of a request is
+sent twice, so a first edit that writes a large new file duplicates that file.
+Later edits are never duplicated.
 
 Verified across one session lifecycle: prompt 1 = 3044 bytes, prompts 2-5 = 196
 bytes each, re-armed to 3044 after `PostCompact`, marker cleaned up on `SessionEnd`.

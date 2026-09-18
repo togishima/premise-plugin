@@ -18,11 +18,13 @@ fixes are untouched. See [`tests/cases.md`](tests/cases.md).
 ## Install
 
 ```bash
-git clone https://github.com/togishima/premise-plugin
-cd premise-plugin
-claude plugin marketplace add ./
+claude plugin marketplace add togishima/premise-plugin
 claude plugin install premise@premise-marketplace
 ```
+
+No clone needed — `marketplace add` takes a GitHub `owner/repo`, a git URL, or a
+local path, and clones it for you. Clone only if you intend to edit the plugin
+(see [Development](#development)).
 
 Verify:
 
@@ -115,6 +117,25 @@ leave the reminder pointing at nothing.
 
 Plus ~221 tokens always-on for the skill and command descriptions.
 
+**The first-edit checkpoint fires once per request, not once per edit.** It is
+keyed on `prompt_id`, so the second and later edits of the same request run the
+hook, produce no output, and add nothing to context. Measured on a request that
+touched three files:
+
+| | |
+|---|---|
+| `Edit` calls | 4 (3 edits + 1 retry of the denied one) |
+| denials delivered | **1** |
+| deny reason | ~541 tok |
+| duplicated payload (the denied edit, re-sent) | ~61 tok |
+| context added by edits 2 and 3 | **0 tok** |
+| **total, once** | **~600 tok** |
+
+The one variable cost is that duplicated payload: the *first* edit of a request is
+sent twice. Here that was 61 tokens; for a first edit that writes a large new file
+it is however big that file is. Later edits in the same request are never
+duplicated.
+
 ## What it does not do
 
 - It does not judge whether you are right.
@@ -147,8 +168,7 @@ Anything else: one line naming the fork, and a question.
 
 ## Known limitations
 
-- The checkpoint costs ~505 tokens and one retried `Edit` call on requests that
-  clear it. Not free, and paid on every request that touches code.
+- The checkpoint costs ~600 tokens once per request that touches code. Not free.
 - "More than one materially different change would fit" is the model's judgment,
   not a rule. It will sometimes be wrong in both directions.
 - Verified against one fixture and seven cases. That is a PoC, not evidence that
@@ -185,6 +205,16 @@ A natural next step, if the PoC survives contact: a `PostToolUse` hook on
 over time. Not built, on purpose.
 
 ## Development
+
+To work on the plugin, clone it and add the marketplace from the local path
+instead of from GitHub:
+
+```bash
+git clone https://github.com/togishima/premise-plugin
+cd premise-plugin
+claude plugin marketplace add ./
+claude plugin install premise@premise-marketplace
+```
 
 The install **copies** the plugin into
 `~/.claude/plugins/cache/premise-marketplace/premise/<version>/`. Editing the source
