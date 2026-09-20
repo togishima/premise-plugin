@@ -8,6 +8,5 @@
   },
   "repository": "https://github.com/togishima/premise-plugin",
   "license": "MIT",
-  "keywords": ["problem-framing", "premise", "hypothesis", "guardrail", "review"],
-  "hooks": "./hooks/hooks.json"
+  "keywords": ["problem-framing", "premise", "hypothesis", "guardrail", "review"]
 }
