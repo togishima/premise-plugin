@@ -97,9 +97,17 @@ only *when* to ask. All judgment stays with the model.
 ## Cost
 
 Zero on every prompt that does not edit code — the plugin has no per-prompt hook at
-all. On a request that does edit code, once: ~505 tokens for the question, plus one
-retried `Edit` (the first edit of a request is sent twice; later edits are never
-duplicated). Plus ~221 tokens always-on for the skill and command descriptions.
+all. On a request that does edit code, once: ~421 tokens the first time an agent is
+asked in a session and ~206 on later requests in the same session, plus one retried
+`Edit` (the first edit of a request is sent twice; later edits are never duplicated).
+Plus ~221 tokens always-on for the skill and command descriptions.
+
+The two sizes are one rubric at two lengths. The short form still carries the (a)-(d)
+criterion list and the closed trivially-correct list, because those are the parts the
+model rationalises around; it drops the worked wording, which by then is already in
+the conversation. A `SessionStart`/`compact` hook re-sends the full text when
+compaction may have removed what the short form refers back to. A session that edits
+code on fifteen separate requests pays ~3,300 tokens rather than ~7,600.
 
 Measured on a request touching three files: 4 `Edit` calls, 1 denial, 0 tokens added
 by the second and third edits.

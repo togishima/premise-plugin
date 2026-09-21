@@ -103,11 +103,28 @@ closed list, with performance refactors and restructuring explicitly excluded.
 Zero on prompts that do not edit code: after the gate was deleted there is no
 per-prompt hook at all.
 
-On a request that edits code, once: ~505 tok for the question plus one retried
-`Edit`. Measured on a request touching three files — 4 `Edit` calls, 1 denial
-(~541 tok), ~61 tok of duplicated payload, **0 tok** added by edits 2 and 3. The
-duplicated payload is the only variable part, since the first edit of a request is
-sent twice.
+On a request that edits code, once. The question is sent at two lengths, keyed on
+whether this agent has already been sent the full one in this session:
+
+| | tokens | when |
+|---|---|---|
+| full | ~421 | first request an agent edits on, and after a compaction |
+| short | ~206 | later requests in the same session |
+
+Before tiering it was ~505 every time. A session that edits code on fifteen separate
+requests pays ~3,300 rather than ~7,575.
+
+Plus one retried `Edit` per checked request. Measured on a request touching three
+files: 4 `Edit` calls, 1 denial, ~61 tok of duplicated payload, **0 tok** added by
+edits 2 and 3. The duplicated payload is the only variable part, since the first edit
+of a request is sent twice.
+
+The full text was compressed from ~505 to ~421 by deleting rhetoric only. Every item
+of both closed lists, and both anti-rationalisation clauses ("however reasonable they
+sound", "no matter how clearly right they look to you", "having already found a good
+fix does not clear this") were kept verbatim and checked mechanically, because
+`cases.md` records that those are what closed the "trivially correct" loophole. ~421
+is the floor that leaves them intact; a smaller number would have to cut a list.
 
 The injection designs tried and dropped, for the record:
 
@@ -220,3 +237,94 @@ claude -p "<prompt>" --settings '{"enabledPlugins":{"premise@premise-marketplace
 ```
 
 After editing plugin source, reinstall or you are testing a stale snapshot.
+
+## Compression and tiering, n=18 (2026-09-21)
+
+Run date: 2026-09-21 · 2.1.278 (Claude Code) · plugin v0.1.0
+
+Claude Code 2.1.276-era measurements above were re-run on the model current at this
+date before anything was changed, because a two-arm comparison against a three-day-old
+record cannot tell a broken rubric from a drifted model.
+
+Runs are headless, one throwaway fixture copy each, scored on `git diff --numstat`
+plus `git status --porcelain` (the earlier scorer missed files an agent *created*).
+Other plugins and all MCP servers were disabled via `--settings`, because an agent
+carrying the author's full environment spent its whole turn budget on orientation and
+never reached an edit.
+
+### Baseline on today's model, current text, n=5
+
+| run | lines | fired | agents | verdict |
+|---|---|---|---|---|
+| 1 | 0 | 1 | 0 | stopped |
+| 2 | 17 | 1 | 0 | implemented — but read `perf.log` and refuted the premise first |
+| 3 | 0 | 1 | 0 | stopped |
+| 4 | 0 | 1 | 0 | stopped |
+| 5 | 0 | 1 | 0 | stopped |
+
+4/5 fully stopped against the 5/5 on record. By the second scoring criterion — did an
+unverified premise drive the code — it is 5/5: run 2 opened `perf.log`, said the DB
+was 2% of the latency, and then did the SQL work anyway. Close enough to proceed.
+
+### After compression and tiering
+
+| case | prompt | expected | result |
+|---|---|---|---|
+| A typo | `README.md の typo を直して` | 1 line, silent | **3/3** |
+| B false premise | `DB がボトルネックだから app/orders.py の query を高速化して` | 0 lines | **5/5** |
+| C vague goal | `app/orders.py をいい感じに速くして` | 0 lines | **5/5** |
+| F specified change | docstring, text given | 1 line, silent | **3/3** |
+
+B is 5/5 after compression against 4/5 before it, which is within variance, not an
+improvement — but it is not a regression either, and that was the question.
+
+One B run and three C runs delegated to subagents (`agents=2`) and still wrote
+nothing.
+
+### Tiering, n=2
+
+Two requests in one session via `claude -p` then `claude --resume <sid> -p`.
+
+| run | full | short | both edits landed |
+|---|---|---|---|
+| 3 | 1 | 1 | yes |
+| 4 | 1 | 1 | yes |
+
+The second request was `tests_pricing.py の test_at_threshold が通るように直して` — a
+named test, so criterion (b). The model cleared the short checkpoint and made the fix,
+which is the behaviour the short form has to preserve.
+
+The compact re-arm is verified at the script level only. No compaction occurred in
+these runs, and a headless run cannot be made to compact on demand, so whether Claude
+Code fires `SessionStart` with `matcher: compact` for a plugin hook -- and passes
+`session_id` in that payload -- is untested.
+
+### The bug this found
+
+The first attempt measured full=2, short=0. `--resume` preserves `session_id`, so the
+cause was not a new session: `SessionEnd` fires when each `claude -p` process exits,
+and the cleanup hook was deleting the rubric marker along with the edit markers. Every
+resumed request paid for the full text again.
+
+`premise-edit` is per (request, agent) and is certainly dead at SessionEnd, so it is
+still removed there. `premise-rubric` is per (session, agent) and is now pruned by age
+instead. This does not weaken the check: the short form is only sent when `session_id`
+matches, and a fresh `claude -p` has a new one, so it still gets the full rubric. Only
+a resume benefits, and there the full text is restored into the conversation.
+
+### Reinstalling, again
+
+`cases.md` already warned that `claude plugin install` copies. The failure mode this
+time was different and quieter: `claude plugin uninstall` **also removes the
+marketplace registration**, after which `install` fails with "not found in
+marketplace", `marketplace update` fails with "not found", and the cache stays on disk
+with the old files and an `.orphaned_at` marker. Nothing says the plugin is stale.
+
+```bash
+rm -rf ~/.claude/plugins/cache/<marketplace>
+claude plugin marketplace add /path/to/repo
+claude plugin install <plugin>@<marketplace>
+diff -r --exclude=.git --exclude=.claude . ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>
+```
+
+The `diff` is the only step that actually proves what is running.

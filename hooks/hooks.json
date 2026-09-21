@@ -22,6 +22,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/premise-compact-reset.sh",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
