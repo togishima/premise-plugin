@@ -328,3 +328,39 @@ diff -r --exclude=.git --exclude=.claude . ~/.claude/plugins/cache/<marketplace>
 ```
 
 The `diff` is the only step that actually proves what is running.
+
+## The skill, n=12 (2026-09-21)
+
+The skill had never been measured. It fires independently of the hook, so nothing in
+the suite above touches it, and `/premise:frame` is the one place a verdict is printed
+and therefore the one place it can be scored.
+
+Two arms, n=3 per prompt per arm: the skill as written, and the skill with the worked
+examples reduced to a five-row lookup table and the reasoning moved to
+`references/examples.md`.
+
+| arm | SKILL.md | scored as expected | read the reference |
+|---|---|---|---|
+| as written | ~1,515 tok | 2/6 | — |
+| examples split out | ~1,380 tok | 2/6 | **0/6** |
+
+Identical, so the split costs nothing, and the reference was never opened, so the
+break-even it had to clear (~24% read rate, above which the round trip costs more than
+the 135 tokens saved) is not close. The split is kept.
+
+### What the 2/6 actually says
+
+The expectations were wrong, not the skill. Both arms agree, so this is a property of
+the document, not of the edit:
+
+| prompt | worked example says | observed (as written) |
+|---|---|---|
+| `DB がボトルネックだから app/orders.py の query を高速化して` | INVESTIGATE | CLARIFY ×3 |
+| `app/orders.py をいい感じに速くして` | CLARIFY | CLARIFY ×2, PROCEED_WITH_ASSUMPTIONS ×1 |
+
+"Check for a missing criterion first" and the worked example for the same request
+disagree, and the rule wins. Either the rule or the example should move. Worth noting
+that the plugin's actual job is unaffected: the same prompt stops the model 5/5 at the
+checkpoint. Only the printed verdict differs, and only under `/premise:frame`.
+
+n=3 per cell. Enough to see that the two arms match; not enough to rank the verdicts.
