@@ -18,6 +18,17 @@
 # AND prompt_id, so agent_id is part of the key. Without it, whichever agent edited
 # first consumed the check for everyone.
 #
+# Two markers, two different keys:
+#   premise-edit.<uid>.<sid>.<pid>.<aid>  has this request already been checked?
+#   premise-rubric.<uid>.<sid>.<aid>      has this agent already seen the full rubric?
+# The full text is ~421 tok and the short one ~206. A session that edits code on
+# fifteen requests pays the full text fifteen times under a single key; under two it
+# pays it once. The short version still carries the (a)-(d) criterion list and the
+# closed trivially-correct list, because those are the parts the model rationalises
+# around -- only the worked wording is dropped, and the earlier full text is still
+# in the conversation. Compaction can remove it, so a SessionStart/compact hook
+# clears the rubric marker and the next firing re-sends the full text.
+#
 # PreToolUse stdout goes to the debug log only, so this emits JSON.
 input=$(cat)
 
@@ -34,10 +45,21 @@ pid=$(printf '%s' "$input" | sed -n 's/.*"prompt_id"[[:space:]]*:[[:space:]]*"\(
 aid=$(printf '%s' "$input" | sed -n 's/.*"agent_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 [ -n "$aid" ] || aid="main"
 
-marker="${TMPDIR:-/tmp}/premise-edit.$(id -u).${sid}.${pid}.${aid}"
+tmp="${TMPDIR:-/tmp}"
+uid=$(id -u)
+marker="${tmp}/premise-edit.${uid}.${sid}.${pid}.${aid}"
+rubric="${tmp}/premise-rubric.${uid}.${sid}.${aid}"
 
-# Already asked for this prompt: stay out of the way.
+# Already asked for this request: stay out of the way.
 [ -f "$marker" ] && exit 0
 
 : > "$marker" 2>/dev/null || true
-cat "${CLAUDE_PLUGIN_ROOT}/hooks/precheck.json"
+
+# First firing for this agent gets the rubric in full; later ones get the short
+# form, which leans on the full text still being in the conversation.
+if [ -f "$rubric" ]; then
+  cat "${CLAUDE_PLUGIN_ROOT}/hooks/precheck-short.json"
+else
+  : > "$rubric" 2>/dev/null || true
+  cat "${CLAUDE_PLUGIN_ROOT}/hooks/precheck.json"
+fi

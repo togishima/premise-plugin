@@ -82,27 +82,16 @@ flawed — if the premise is wrong, the evidence you found says so by itself.
 
 ## Worked examples
 
-**"The DB is the bottleneck, optimize this query"** — Observation: something is
-slow, scope unstated. Hypothesis: the DB, and this query specifically.
-Verification: absent. → INVESTIGATE. Look for timing data, existing traces or
-metrics, the query's actual shape and indexes, and what else sits on that path.
-Optimizing the query first would produce a real diff that may fix nothing.
+| Request | Missing | Verdict |
+|---|---|---|
+| "The DB is the bottleneck, optimize this query" | Observation is a bare symptom; the cause is asserted | INVESTIGATE |
+| "This code is slow, make it nicer" | Goal ambiguous, Verification absent | CLARIFY |
+| "Fix the typo in the README" | nothing | READY |
+| "500 on POST /orders when the cart is empty; expected 400; see `test_empty_cart`" | nothing | READY |
+| "Haven't confirmed the cause but I think it's the retry loop — try removing it" | cause, but the user labelled it and chose the experiment | PROCEED_WITH_ASSUMPTIONS |
 
-**"This code is slow, make it nicer"** — Goal ambiguous (latency? readability?),
-Verification absent, no Observation at all. → CLARIFY. Ask which one, and what
-"fast enough" means. Two questions, then stop.
-
-**"Fix the typo in the README"** — Goal, Observation and Verification are all
-trivially present. → READY. Do it.
-
-**"Users get a 500 on POST /orders when the cart is empty; expected a 400; see
-`test_empty_cart`"** — repro, observed behavior, expected behavior, and a test to
-verify against. → READY. Do not ask anything.
-
-**"I haven't confirmed the cause but I think it's the retry loop — try removing it
-and let's see"** — the user has already labelled the Hypothesis as a Hypothesis and
-chosen a small experiment. → PROCEED_WITH_ASSUMPTIONS. The framing work is done;
-doing it again is the failure mode this plugin exists to avoid.
+If a request does not obviously match a row, read `references/examples.md` for the
+reasoning behind each.
 
 ## What this is not
 
