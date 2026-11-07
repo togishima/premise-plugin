@@ -75,7 +75,7 @@ def scan(path):
             if not isinstance(b, dict) or b.get("type") != "tool_result":
                 continue
             body = json.dumps(b.get("content"), ensure_ascii=False)
-            if b.get("is_error") and "premise-check" in body:
+            if b.get("is_error") and ("premise-check" in body or body.startswith("premise:")):
                 fired.add(pid)
             elif pid in fired and not b.get("is_error") and "has been updated" in body:
                 wrote.add(pid)
