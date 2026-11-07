@@ -10,7 +10,7 @@
       "name": "premise",
       "source": "./",
       "description": "Frame the problem before implementing: keep Observation and Hypothesis apart.",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }

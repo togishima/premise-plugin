@@ -31,24 +31,30 @@ it off without uninstalling.
 
 ## What it does
 
-On the **first code edit of a request**, and only then, Claude is asked whether the
-request states a success criterion. It counts only as:
+On the **first code edit of a request**, a separate model -- not the one editing --
+reads the recent conversation and the pending edit and decides whether you
+established a success criterion. It counts only as:
 
 - a number or threshold — "under 300ms", "half the queries"
 - a named test or assertion to make pass
 - an exact expected behavior — "should return 400, not 500"
-- the change and its location, named by you — "cache the profile lookup in `list_orders`"
+- the change and its location, named by you, or proposed concretely by Claude and
+  then approved by you ("ok", "進めて")
 
 A **direction** is not a criterion: "faster", "cleaner", "better", "いい感じに",
-"最適化して". It says which way to go, not what to change or when to stop.
+"最適化して". Without a criterion the edit still proceeds if it is a typo, a rename,
+formatting, a comment, restoring something you named, or a scratch/notes file.
 
-Without a criterion, the edit still proceeds if it is on a closed list of changes
-that cannot embody a goal choice: a typo, a rename, formatting, a comment, or
-restoring something you named. Performance refactors, N+1 fixes, caching, batching,
-restructuring and error-handling changes are deliberately **not** on that list —
-however obviously right they look, each picks a goal on your behalf.
+Otherwise every edit in that request is denied and Claude is handed one question to
+ask you. Retrying does not clear it; your reply is a new request and is judged again.
 
-Anything else: one line naming the fork, and a question.
+Why a separate judge: the first version denied the first edit once and let the
+editing model clear it itself. On 80 real denials it retried straight through 67
+times and asked the user 0 times. The model that has already picked an
+implementation is the wrong one to decide whether a goal was set.
+
+If the judge cannot run (no `claude` CLI on PATH, timeout, unparsable output), the
+edit is allowed: a broken guard must not block work.
 
 The deeper distinction it is enforcing is **Observation vs Hypothesis**. "DB が
 ボトルネック" is not an observation that the DB is slow; it is an observation that
@@ -62,8 +68,7 @@ Two hooks, one skill, one command. No server, no database, no classifier, and no
 state beyond an empty marker file per request.
 
 ```
-hooks/premise-precheck.sh  PreToolUse on Edit|Write — fires once per request, per agent
-hooks/precheck.json        the question it asks
+hooks/premise-judge.py     PreToolUse on Edit|Write — a separate model judges the first edit of each request
 hooks/premise-cleanup.sh   SessionEnd — removes marker files, no behavior
 skills/problem-framing/    the full rubric, loaded only when the check does not clear
 commands/frame.md          /premise:frame — explicit, manual framing
@@ -96,13 +101,10 @@ only *when* to ask. All judgment stays with the model.
 
 ## Cost
 
-Zero on every prompt that does not edit code — the plugin has no per-prompt hook at
-all. On a request that does edit code, once: ~505 tokens for the question, plus one
-retried `Edit` (the first edit of a request is sent twice; later edits are never
-duplicated). Plus ~221 tokens always-on for the skill and command descriptions.
-
-Measured on a request touching three files: 4 `Edit` calls, 1 denial, 0 tokens added
-by the second and third edits.
+Zero on every prompt that does not edit code. On a request that does edit code, one
+call to a separate model (`sonnet` by default, `PREMISE_JUDGE_MODEL` to change it)
+on the first edit, about 4-5 seconds; the verdict is cached for the rest of the
+request. Subagent edits are not judged.
 
 ## What it does not do
 

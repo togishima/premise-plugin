@@ -6,8 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/premise-precheck.sh",
-            "timeout": 5
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/premise-judge.py",
+            "timeout": 90,
+            "statusMessage": "premise: checking the request has a success criterion"
           }
         ]
       }
